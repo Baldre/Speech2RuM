@@ -89,7 +89,6 @@ public class LogicHandler {
             } catch (RuntimeException e) {
                 System.err.println(e);
             } finally {
-                System.out.println();
                 recordingRule = false;
             }
             System.out.println(getCommands());
@@ -125,6 +124,7 @@ public class LogicHandler {
                     break;
             }
 
+            recordingCondition = null;
             System.out.println(getCommands());
             return;
         }
@@ -225,7 +225,7 @@ public class LogicHandler {
         if (recordedConstraints.size() == 0) {
             return "\n" + availableCommands;
         } else {
-            return "\n" + availableCommands + "\n" + constraintCommands + "\n" + "Last recorded: " + lastConstraint();
+            return "\n" + availableCommands + "\n" + constraintCommands + "\n" + "Last recorded: " + lastConstraint().toRuMString();
         }
     }
 }

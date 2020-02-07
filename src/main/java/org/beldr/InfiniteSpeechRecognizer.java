@@ -68,6 +68,8 @@ public class InfiniteSpeechRecognizer {
         } catch (Exception e) {
             System.out.println("Exception caught: " + e);
         }
+
+        System.exit(1);
     }
 
     /**

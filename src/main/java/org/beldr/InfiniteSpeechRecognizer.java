@@ -23,12 +23,9 @@ package org.beldr;
 import com.google.api.gax.rpc.ClientStream;
 import com.google.api.gax.rpc.ResponseObserver;
 import com.google.api.gax.rpc.StreamController;
-import com.google.cloud.speech.v1.RecognitionConfig;
-import com.google.cloud.speech.v1.SpeechClient;
-import com.google.cloud.speech.v1.StreamingRecognitionConfig;
-import com.google.cloud.speech.v1.StreamingRecognizeRequest;
-import com.google.cloud.speech.v1.StreamingRecognizeResponse;
+import com.google.cloud.speech.v1.*;
 import com.google.protobuf.ByteString;
+import declareextraction.constructs.DeclareModel;
 
 import java.lang.Math;
 import java.util.ArrayList;
@@ -49,6 +46,9 @@ public class InfiniteSpeechRecognizer {
     private static TargetDataLine targetDataLine;
     private static int BYTES_PER_BUFFER = 6400; // buffer size in bytes
 
+    private static String lastRawString;
+    private static DeclareModel lastRawModel;
+
     private static StreamController referenceToStreamController;
     private static int restartCounter = 0;
     private static int finalRequestEndTime = 0;
@@ -56,24 +56,21 @@ public class InfiniteSpeechRecognizer {
     private static ArrayList<ByteString> audioInput = new ArrayList<>();
     private static ArrayList<ByteString> lastAudioInput = new ArrayList<>();
     private static boolean newStream = true;
-    static boolean keepOnlistening = true;
+    public static boolean keepOnlistening;
     static boolean lastTranscriptWasFinal = false;
     static int resultEndTimeInMS = 0;
     static int isFinalEndTime = 0;
-
-    public static void main(String... args) {
-        try {
-            final String langCode = "en-US";
-            infiniteStreamingRecognize(langCode);
-        } catch (Exception e) {
-            System.out.println("Exception caught: " + e);
-        }
-    }
+    public static final String langCode = "en-US";
 
     /**
      * Performs infinite streaming speech recognition
      */
     public static void infiniteStreamingRecognize(String languageCode) throws Exception {
+        infiniteStreamingRecognize(languageCode, true);
+    }
+
+
+    public static void infiniteStreamingRecognize(String languageCode, boolean standAlone) throws Exception {
 
         // Microphone Input buffering
         class MicBuffer implements Runnable {
@@ -102,25 +99,7 @@ public class InfiniteSpeechRecognizer {
         ResponseObserver<StreamingRecognizeResponse> responseObserver;
         try (SpeechClient client = SpeechClient.create()) {
             ClientStream<StreamingRecognizeRequest> clientStream;
-            responseObserver =
-                    new ResponseObserver<StreamingRecognizeResponse>() {
-
-                        public void onStart(StreamController controller) {
-                            LogicHandler.handleBeginning();
-                            referenceToStreamController = controller;
-                        }
-
-                        //Main logic
-                        public void onResponse(StreamingRecognizeResponse response) {
-                            LogicHandler.handleResult(response);
-                        }
-
-                        public void onComplete() {
-                        }
-
-                        public void onError(Throwable t) {
-                        }
-                    };
+            responseObserver = standAlone ? convertingSpeechRecognizer : rawStringSpeechRecognizer;
             clientStream = client.streamingRecognizeCallable().splitCall(responseObserver);
 
             RecognitionConfig recognitionConfig = RecognitionConfig.newBuilder()
@@ -155,6 +134,7 @@ public class InfiniteSpeechRecognizer {
                 micThread.start();
 
                 long startTime = System.currentTimeMillis();
+                keepOnlistening = true;
 
                 while (keepOnlistening) {
 
@@ -238,8 +218,56 @@ public class InfiniteSpeechRecognizer {
             } finally {
                 micThread.interrupt();
                 clientStream.closeSend();
+                targetDataLine.close();
             }
         }
     }
 
+    public static ResponseObserver<StreamingRecognizeResponse> rawStringSpeechRecognizer = new ResponseObserver<StreamingRecognizeResponse>() {
+
+        public void onStart(StreamController controller) {
+            referenceToStreamController = controller;
+        }
+
+        public void onResponse(StreamingRecognizeResponse response) {
+            StreamingRecognitionResult result = response.getResultsList().get(0);
+            if (result.getIsFinal()) {
+                lastRawString = result.getAlternativesList().get(0).getTranscript().trim().toLowerCase();
+                lastRawModel = DeclareUtil.generateModel(lastRawString);
+                keepOnlistening = false;
+            }
+        }
+
+        public void onComplete() {
+        }
+
+        public void onError(Throwable t) {
+        }
+    };
+
+    private static ResponseObserver<StreamingRecognizeResponse> convertingSpeechRecognizer = new ResponseObserver<StreamingRecognizeResponse>() {
+
+        public void onStart(StreamController controller) {
+            LogicHandler.handleBeginning();
+            referenceToStreamController = controller;
+        }
+
+        public void onResponse(StreamingRecognizeResponse response) {
+            LogicHandler.handleResult(response);
+        }
+
+        public void onComplete() {
+        }
+
+        public void onError(Throwable t) {
+        }
+    };
+
+    public static String getLastRawString() {
+        return lastRawString;
+    }
+
+    public static DeclareModel getLastRawModel() {
+        return lastRawModel;
+    }
 }

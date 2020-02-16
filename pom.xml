@@ -29,6 +29,13 @@
 
         <!--DeclareExtractor-->
         <dependency>
+            <groupId>org.han</groupId>
+            <artifactId>declareextraction</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/DeclareExtraction-1.0.1-SNAPSHOT.jar</systemPath>
+        </dependency>
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>1.7.30</version>

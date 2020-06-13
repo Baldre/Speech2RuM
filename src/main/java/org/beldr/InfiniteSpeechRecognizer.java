@@ -25,7 +25,6 @@ import com.google.api.gax.rpc.ResponseObserver;
 import com.google.api.gax.rpc.StreamController;
 import com.google.cloud.speech.v1.*;
 import com.google.protobuf.ByteString;
-import declareextraction.constructs.DeclareModel;
 
 import java.lang.Math;
 import java.util.ArrayList;
@@ -42,12 +41,12 @@ public class InfiniteSpeechRecognizer {
     private static final int STREAMING_LIMIT = 290000; // ~5 minutes
 
     // Creating shared object
-    private static volatile BlockingQueue<byte[]> sharedQueue = new LinkedBlockingQueue();
+    private static final BlockingQueue<byte[]> sharedQueue = new LinkedBlockingQueue();
     private static TargetDataLine targetDataLine;
-    private static int BYTES_PER_BUFFER = 6400; // buffer size in bytes
+    private static final int BYTES_PER_BUFFER = 6400; // buffer size in bytes
 
     private static String lastRawString;
-    private static DeclareModel lastRawModel;
+    private static StreamingRecognitionResult lastResult;
 
     private static StreamController referenceToStreamController;
     private static int restartCounter = 0;
@@ -60,68 +59,46 @@ public class InfiniteSpeechRecognizer {
     static boolean lastTranscriptWasFinal = false;
     static int resultEndTimeInMS = 0;
     static int isFinalEndTime = 0;
-    public static final String langCode = "en-US";
+
+    private final static RecognitionConfig recognitionConfig = RecognitionConfig.newBuilder()
+            .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
+            .setLanguageCode("en-US")
+            .setSampleRateHertz(16000)
+            .build();
+
+    private final static StreamingRecognitionConfig streamingRecognitionConfig = StreamingRecognitionConfig.newBuilder()
+            .setConfig(recognitionConfig)
+            .setInterimResults(true)
+            .build();
+
+    private final static StreamingRecognizeRequest confRequest = StreamingRecognizeRequest.newBuilder()
+            .setStreamingConfig(streamingRecognitionConfig)
+            .build();
+
+    private final static AudioFormat audioFormat = new AudioFormat(16000, 16, 1, true, false);
 
     /**
      * Performs infinite streaming speech recognition
      */
-    public static void infiniteStreamingRecognize(String languageCode) throws Exception {
-        infiniteStreamingRecognize(languageCode, true);
+    public static void infiniteStreamingRecognize() throws Exception {
+        infiniteStreamingRecognize(false);
     }
 
 
-    public static void infiniteStreamingRecognize(String languageCode, boolean standAlone) throws Exception {
+    public static void infiniteStreamingRecognize(boolean standAlone) throws Exception {
 
-        // Microphone Input buffering
-        class MicBuffer implements Runnable {
-
-            @Override
-            public void run() {
-                targetDataLine.start();
-                byte[] data = new byte[BYTES_PER_BUFFER];
-                while (targetDataLine.isOpen()) {
-                    try {
-                        int numBytesRead = targetDataLine.read(data, 0, data.length);
-                        if ((numBytesRead <= 0) && (targetDataLine.isOpen())) {
-                            continue;
-                        }
-                        sharedQueue.put(data.clone());
-                    } catch (InterruptedException e) {
-                        System.out.println("Microphone input buffering interrupted : " + e.getMessage());
-                    }
-                }
-            }
-        }
-
-        // Creating microphone input buffer thread
-        MicBuffer micrunnable = new MicBuffer();
-        Thread micThread = new Thread(micrunnable);
-        ResponseObserver<StreamingRecognizeResponse> responseObserver;
         try (SpeechClient client = SpeechClient.create()) {
+            // Creating microphone input buffer thread
+            MicBuffer micrunnable = new MicBuffer();
+            Thread micThread = new Thread(micrunnable);
+            ResponseObserver<StreamingRecognizeResponse> responseObserver = standAlone ? convertingSpeechRecognizer : rawStringSpeechRecognizer;
+
             ClientStream<StreamingRecognizeRequest> clientStream;
-            responseObserver = standAlone ? convertingSpeechRecognizer : rawStringSpeechRecognizer;
             clientStream = client.streamingRecognizeCallable().splitCall(responseObserver);
-
-            RecognitionConfig recognitionConfig = RecognitionConfig.newBuilder()
-                    .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
-                    .setLanguageCode(languageCode)
-                    .setSampleRateHertz(16000)
-                    .build();
-
-            StreamingRecognitionConfig streamingRecognitionConfig = StreamingRecognitionConfig.newBuilder()
-                    .setConfig(recognitionConfig)
-                    .setInterimResults(true)
-                    .build();
-
-            StreamingRecognizeRequest request = StreamingRecognizeRequest.newBuilder()
-                    .setStreamingConfig(streamingRecognitionConfig)
-                    .build(); // The first request in a streaming call has to be a config
-
+            StreamingRecognizeRequest request = confRequest; // The first request in a streaming call has to be a config
             clientStream.send(request);
 
             try {
-                // SampleRate:16000Hz, SampleSizeInBits: 16, Number of channels: 1, Signed: true, bigEndian: false
-                AudioFormat audioFormat = new AudioFormat(16000, 16, 1, true, false);
                 DataLine.Info targetInfo = new Info(TargetDataLine.class, audioFormat); // Set the system information to read from the microphone audio stream
 
                 if (!AudioSystem.isLineSupported(targetInfo)) {
@@ -135,11 +112,9 @@ public class InfiniteSpeechRecognizer {
 
                 long startTime = System.currentTimeMillis();
                 keepOnlistening = true;
-
                 while (keepOnlistening) {
 
                     long estimatedTime = System.currentTimeMillis() - startTime;
-
                     if (estimatedTime >= STREAMING_LIMIT) {
 
                         clientStream.closeSend();
@@ -169,7 +144,6 @@ public class InfiniteSpeechRecognizer {
                                 .build();
 
                         System.out.printf("%d: RESTARTING REQUEST\n", restartCounter * STREAMING_LIMIT);
-
                         startTime = System.currentTimeMillis();
 
                     } else {
@@ -213,7 +187,7 @@ public class InfiniteSpeechRecognizer {
 
                     clientStream.send(request);
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 System.out.println(e);
             } finally {
                 micThread.interrupt();
@@ -230,10 +204,9 @@ public class InfiniteSpeechRecognizer {
         }
 
         public void onResponse(StreamingRecognizeResponse response) {
-            StreamingRecognitionResult result = response.getResultsList().get(0);
+            final StreamingRecognitionResult result = lastResult = response.getResultsList().get(0);
             if (result.getIsFinal()) {
                 lastRawString = result.getAlternativesList().get(0).getTranscript().trim().toLowerCase();
-                lastRawModel = DeclareUtil.generateModel(lastRawString);
                 keepOnlistening = false;
             }
         }
@@ -245,7 +218,7 @@ public class InfiniteSpeechRecognizer {
         }
     };
 
-    private static ResponseObserver<StreamingRecognizeResponse> convertingSpeechRecognizer = new ResponseObserver<StreamingRecognizeResponse>() {
+    private static final ResponseObserver<StreamingRecognizeResponse> convertingSpeechRecognizer = new ResponseObserver<StreamingRecognizeResponse>() {
 
         public void onStart(StreamController controller) {
             LogicHandler.handleBeginning();
@@ -267,7 +240,27 @@ public class InfiniteSpeechRecognizer {
         return lastRawString;
     }
 
-    public static DeclareModel getLastRawModel() {
-        return lastRawModel;
+    public static StreamingRecognitionResult getLastResult() {
+        return lastResult;
+    }
+
+    private static class MicBuffer implements Runnable {
+
+        @Override
+        public void run() {
+            targetDataLine.start();
+            byte[] data = new byte[BYTES_PER_BUFFER];
+            while (targetDataLine.isOpen()) {
+                try {
+                    int numBytesRead = targetDataLine.read(data, 0, data.length);
+                    if ((numBytesRead <= 0) && (targetDataLine.isOpen())) {
+                        continue;
+                    }
+                    sharedQueue.put(data.clone());
+                } catch (InterruptedException e) {
+                    System.out.println("Microphone input buffering interrupted : " + e.getMessage());
+                }
+            }
+        }
     }
 }

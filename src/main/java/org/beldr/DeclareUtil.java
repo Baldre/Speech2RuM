@@ -1,6 +1,5 @@
 package org.beldr;
 
-import declareextraction.constructs.DeclareConstraint;
 import declareextraction.constructs.DeclareModel;
 import declareextraction.constructs.TextModel;
 import declareextraction.textprocessing.DeclareConstructor;
@@ -12,15 +11,11 @@ import java.util.List;
 public class DeclareUtil {
 
     private static final String FILENAME = "model.decl";
-//    private static final String TEST = "the big bad wolf comes in, but is overthrown";
-//
-//    public static void main(String[] args) {
-//        DeclareModel dm = generateModel(TEST);
-//        for (DeclareConstraint constraint : dm.getConstraints()) {
-//            System.out.println(constraint.toRuMString());
-//        }
-//    }
 
+    /**
+     * @deprecated Should only be used internally for standalone, uses 1.0a of DeclareExtractor
+     */
+    @Deprecated () //Should only be used internally
     public static DeclareModel generateModel(String input) {
         //DeclareExtractor#runSingleConstraint
         PrintStream ogOut = System.out;

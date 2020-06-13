@@ -13,9 +13,8 @@ public class RawRecognizer {
                     String result = scanner.nextLine();
                     System.out.println("-" + result);
                     if (!result.equals("close")) {
-                        InfiniteSpeechRecognizer.infiniteStreamingRecognize(InfiniteSpeechRecognizer.langCode, false);
+                        InfiniteSpeechRecognizer.infiniteStreamingRecognize(false);
                         System.out.println(InfiniteSpeechRecognizer.getLastRawString());
-                        InfiniteSpeechRecognizer.getLastRawModel().getConstraints().forEach(e -> System.out.println(e.toRuMString()));
                     } else {
                         break;
                     }
